@@ -1,0 +1,302 @@
+---
+title: "replication_code"
+author: "Tokoki Kubo,Ikeuchi Rio,Atsuki Tsujimoto"
+date: "2023-08-15"
+output: html_document
+---
+
+
+```{r relax memory}
+gc(reset = TRUE)
+gc(reset = TRUE)
+rm()
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r package, warning=FALSE}
+if (!requireNamespace("pacman", quietly = TRUE)) {
+    install.packages("pacman")
+}
+library(pacman)
+
+pacman::p_load(ggplot2,fixest,modelsummary,summarytools,readr,tidyverse,gt,gtextra,lmtest,rdrobust,sandwich,gtsummary,rdd,makedummies)
+```
+
+```{r importdata, warning=FALSE}
+raw_data<-read_csv(("smallno.csv"))
+
+```
+
+
+```{r summary,cache=TRUE}
+view(dfSummary(raw_data))
+
+```
+
+- classidはyearとセットで一意になる
+```{r}
+raw_data %>% 
+  group_by(classid,survey)%>% 
+  summarise(num=n()) %>% 
+  filter(num>1)
+
+raw_data<-raw_data %>% unite(
+    col = class_year,
+    classid,survey,
+    sep = "-",
+    remove = FALSE)
+```
+
+
+
+- 欠損がないデータだけを表にしているらしい
+
+```{r table1 panelA}
+
+#地域ダミーの追加
+raw_data<-raw_data%>%mutate(new_area=if_else(area=="South","South","North/ Center")) 
+
+theme_gtsummary_mean_sd()
+
+table_class<-raw_data%>% 
+  select(new_area,grade,female,immigrants_broad,
+         dad_midedu,mom_unemp,answers_math_pct,answers_ital_pct,
+         clsize_snv,our_CHEAT_math,our_CHEAT_ital) %>% 
+  filter(!is.na(our_CHEAT_math)&!is.na(our_CHEAT_ital))
+  
+table_class %>%
+  mutate(grade=if_else(grade==1,2,5)) %>%
+  tbl_strata(
+    strata = grade,
+    .tbl_fun =
+      ~ .x %>%
+        tbl_summary(by = new_area) ,
+        .header = "Grade**{strata}**") 
+ 
+
+```
+
+
+
+
+
+
+B. Maimonides in Italy
+
+=======
+
+- マイモデニスルールを実装
+  - reform:制度改正後(クラス人数上限(cap)が27)なら1を取るダミー変数
+```{r Maimonides (p224)}
+#second graders entering in 2009 and fifth graders in any year were subject to the old rule(25), while second graders entering in 2010 and 2011 were subject to the new rule(27).
+raw_data <- raw_data %>%
+  mutate(reform = ifelse((grade == 1 & survey != 2009), 1, 0),
+         cap=if_else(reform==1,27,25)) #post:制度改正後なら1,cap変数の作成
+ 
+f_moni <- function(enrol_sch_snv, cap){
+f <- enrol_sch_snv / (floor((enrol_sch_snv - 1) / cap) + 1)#マイデモニスルールの関数
+return(f)
+}
+
+raw_data <- raw_data %>%
+  mutate(moni = f_moni(enrol_sch_snv,cap))#予想される定員(moni)を追加
+
+
+```
+
+
+
+```{r plotplot}
+
+##Plotted points show the average actual class size at each level of enrollment
+plot<-raw_data %>%
+  select(enrol_sch_snv, clsize_snv,grade)%>% 
+  group_by(enrol_sch_snv,grade) %>% 
+  summarise(a_clsize_snv = mean(clsize_snv, na.rm = T))
+
+```
+
+
+
+```{r figure2,3}
+raw_data<-raw_data%>%left_join(plot) 
+raw_data%>% 
+  ggplot(aes(x = enrol_sch_snv, y = a_clsize_snv,colour="blue")) + 
+  geom_line(aes(y = moni,colour="tomato"))+
+  facet_wrap( grade~reform, 
+              labeller = labeller(grade = c(`0` = "grade5", `1` = "grade2"),
+                                  reform=c(`0` = "pre-reform", `1` = "post-reform")))+
+  geom_point() +
+  scale_x_continuous(limits = c(0, 150))+
+  labs(title="Figure 2-3. Class Size by Enrollment ")
+    
+```
+
+
+
+
+
+
+- Figure 4. Class Size and Enrollment, Centered at Maimonides’ Cutoffs
+
+
+```{r }
+
+raw_data<-raw_data %>% mutate(enroll_cutoff=enrol_sch_snv-cap,
+                    class_cutoff=a_clsize_snv-moni)
+
+
+
+
+```
+
+- 7 Control variables include percent of female students in the class; percent of immigrant students; dummies for
+missing values in these variables; percent of students with high school dropout, high school graduate, or college
+graduate fathers (missing information is the omitted category); percent of students with employed, unemployed, or
+inactive mothers (missing information is the omitted category). Stratification controls consist of total enrollment in
+grade, region dummies, and the interaction between enrollment and region.
+
+
+MODELS_12 <- alist(
+  model1 = class_cutoff~ segment +female+immigrants_broad+dad_lowedu+dad_midedu+dad_highedu+mom_unemp+mom_housew+mom_employed+grade+north+centre+students+students*north+students*centre,
+  model2 = class_cutoff~ segment +female+immigrants_broad+dad_midedu+mom_unemp) |> 
+  enframe(name = "modelname", value = "formula")
+
+rdd_12 <- MODELS_12 %>% 
+  mutate(model = map(.x = formula, .f = lm, 
+                     data = raw_data_rd)) %>% 
+  mutate(pred = map(.x = model, .f = predict))
+
+
+raw_data1<-raw_data_rd %>%  
+  mutate(pred = rdd_12$pred[[1]] ,
+         residual=deviation-pred) 
+raw_data1%>% 
+  ggplot(aes(x = enroll_cutoff))+
+  geom_point(aes(y = deviation))+
+  geom_line(aes(y = residual)) +
+  geom_vline(xintercept = 0, color = "gray") +
+  facet_wrap(~new_area)+
+  xlim(-12,12)+
+  ylim(-5, 5) +
+  labs(x = "Enrollment", y = "classsize") +
+ scale_color_manual(values = c("blue", "red")) 
+
+
+```{r}
+raw_data<-raw_data %>% mutate(notrh_coef=students*north,
+                                centre_coef=students*centre)
+cv<-raw_data %>% select(female,immigrants_broad,dad_lowedu,dad_midedu,dad_highedu,mom_unemp,mom_housew,mom_employed,grade,north,centre,students,notrh_coef,centre_coef)
+
+```
+  
+
+
+```{r}
+
+raw_data<-raw_data %>% mutate(syou=enrol_sch_snv%/%cap,
+                              amari=enrol_sch_snv%%cap,                              deviation=if_else(amari<12,enrol_sch_snv-(syou)*cap,enrol_sch_snv-(syou+1)*cap),
+                              class_dev=moni-clsize_snv)
+
+
+
+```
+
+```{r}
+region<-raw_data %>% 
+  select(region)
+dummy_vars <- model.matrix(~ region - 1, data=region) # '- 1'は定数項(Intercept)を除去するため
+df_dummy <- as.data.frame(dummy_vars)
+colnames(df_dummy)<- grep("^region", names(df_dummy), value = TRUE) %>% str_replace(" ","") %>% str_replace(" ","") %>% str_replace("'","")
+```
+
+
+```{r}
+raw_data<-raw_data %>% bind_cols(df_dummy) %>% select(-region)
+```
+
+
+```{r north_centre data}
+north_data<-raw_data %>% filter(new_area=="North/ Center") 
+cv_north<-north_data %>% select(female,immigrants_broad,dad_lowedu,dad_midedu,dad_highedu,mom_unemp,mom_housew,mom_employed,grade,north,students)
+```
+
+
+
+```{r figure4}
+rdplot( north_data$clsize_snv,north_data$deviation, c = 0,covs=cv_north,kernel = "triangular",
+         x.lim = c(-12,12),
+         y.lim = c(-5,5))
+```
+```{r}
+rdplot( north_data$answers_ital_std,north_data$deviation, c = 0,covs=cv_north,
+         x.lim = c(-12,12),
+         y.lim = c(-0.1,0.1))
+```
+
+```{r}
+south_data<-raw_data%>% filter(new_area=="South")
+
+cv_south<-south_data %>% select(female,immigrants_broad,dad_lowedu,dad_midedu,dad_highedu,mom_unemp,mom_housew,mom_employed,grade,students)
+
+```
+
+```{r}
+rdplot( south_data$clsize_snv,south_data$deviation, c = 0,covs=cv_south,kernel = "triangular",
+         x.lim = c(-12,12),
+         y.lim = c(-5,5))
+```
+
+```{r}
+rdrobust( north_data$answers_ital_std,north_data$deviation, c = 0,covs=cv_north)
+```
+
+```{r}
+
+```
+```{r}
+ 
+```
+
+```{r}
+
+```
+
+
+- regionとenrollの交差項
+```{r}
+vars_region <- grep("^region", names(north_data), value = TRUE)
+
+# 変数名をモデルの式の文字列に変換
+vars_formula <- paste(vars_region, collapse = " *enrol_ins_snv + ")
+```
+- Table2(2)
+```{r OLS}
+full_formula_str <- paste0("answers_ital_std ~ clsize_snv+ students+ students2 + female + ", vars_formula," + m_female+ immigrants_broad+ m_origin + dad_lowedu + dad_midedu + dad_highedu + mom_unemp + mom_housew + mom_employed + enrol_ins_snv|survey + grade")
+
+full_formula <- as.formula(full_formula_str)
+
+# モデルを推定
+result <- feols(full_formula, data=north_data)
+etable(result, cluster = c("clu"))
+```
+
+- Table2(5)
+
+```{r IV}
+
+# 完全なモデルの式を作成
+full_formula_str_iv <- paste0("answers_ital_std ~  students+ students2 + female + ", vars_formula," + m_female+ immigrants_broad+ m_origin + dad_lowedu + dad_midedu + dad_highedu + mom_unemp + mom_housew + mom_employed |survey+ grade|clsize_snv~moni ")
+
+full_formula_iv <- as.formula(full_formula_str_iv)
+
+# モデルを推定
+result_iv <- feols(full_formula_iv, data=north_data)
+etable(result_iv, cluster = c("clu"))
+
+```
