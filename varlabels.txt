@@ -1,0 +1,48 @@
+schoolid : Institution identifier
+survey : Survey year
+plessoid : School identifier
+classid : Class identifier
+area : Area
+region : Region
+grade : Dummy for grade II
+sampled_math : Class monitored in math
+sampled_ital : Class monitored in Italian language
+clsize_snv : Class size
+enrol_ins_snv : Grade enrollment at institution
+enrol_sch_snv : Grade enrollment at school
+answers_math_std : Standardized math score
+answers_ital_std : Standardized Italian language score
+female : Pct female students
+m_female : Pct students with missing gender
+immigrants_broad : Pct immigrants students
+m_origin : Pct students with missing origin
+m_dad_edu : Pct students with missing father education
+dad_lowedu : Pct students whose father is HS dropout
+dad_midedu : Pct students whose father is HS graduate
+dad_highedu : Pct students whose father is College graduate
+m_mom_edu : Pct students with missing mother education
+m_mom_occ : Pct students with missing mother ocupation
+mom_unemp : Pct students whose mother is unemployed
+mom_housew : Pct students whose mother is homemaker
+mom_employed : Pct students whose mother is employed
+answers_math_pct : Pct of correct answers - math
+answers_ital_pct : Pct of correct answers - Italian language
+our_CHEAT_ital : Class with compromised scores - Italian language
+our_CHEAT_math : Class with compromised scores - math
+d : Years and grades after the class size reform
+students : School enrolment, by grade
+students2 : School enrolment, by grade, squared
+segment : Distance from Maimonides threshold
+fuzzy2_d2 : Dummy for enrollment 1 student below threshold
+fuzzy2_d3 : Dummy for enrollment at threshold
+fuzzy2_d4 : Dummy for enrollment 1 student above threshold
+fuzzy2_d5 : Dummy for enrollment 2 students above threshold
+clsize_hat : Maimonides' Class size
+north : Northern Italy dummy
+centre : Central Italy dummy
+south : Southern Italy dummy
+o_math : Monitor at institution
+clu : Cluster: school*grade
+ratio_clsize : Pct in class sitting the test
+ratio_ins_enrol : Pct in institution sitting the test
+ratio_sch_enrol : Pct in school sitting the test
